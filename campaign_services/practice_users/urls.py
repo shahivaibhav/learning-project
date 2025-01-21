@@ -1,11 +1,8 @@
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import PracticeUserViewSet
-
-router = DefaultRouter()
-
-router.register(r'practice_user', PracticeUserViewSet, basename='practice_user')
+from .views import RegisterView, LoginView
 
 urlpatterns = [
-    path('api/', include(router.urls))
+    path('api/register/', RegisterView.as_view(), name='register'),  # Signup endpoint
+    path('api/login/', LoginView.as_view(), name='login'),          # Login endpoint
+    path('auth/', include('rest_framework.urls', namespace='rest_framework')),
 ]
