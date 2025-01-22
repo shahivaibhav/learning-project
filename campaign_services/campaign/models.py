@@ -1,9 +1,10 @@
-from sqlalchemy import String, Integer, DateTime, create_engine, ForeignKey, Column, func
+from sqlalchemy import String, Integer, DateTime, create_engine, ForeignKey, Column, func, Table, MetaData
 from sqlalchemy.ext.declarative import declarative_base
 
 
 
 Base = declarative_base()
+metadata = MetaData()
 DATABASE_URL = "postgresql://practice_user:Vaibhav1@localhost/campaigdb"
 
 # UserCampaign
@@ -24,8 +25,9 @@ class UserCampaign(Base):
 
 #UserCampaignSequence :- In this model, we will make a relationship with userCampaign as one campaign can have sub-campaigns.So this model represents the sub-campaign
 
+
 class UserCampaignSequence(Base):
-    __tablname__ = 'user_campaign_sequence'
+    __tablename__ = 'user_campaign_sequence'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
