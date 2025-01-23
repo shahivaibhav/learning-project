@@ -7,6 +7,4 @@ endpoints:
         port: 8000
       type: REST
       networkVisibilities:
-        - Project
         - Public
-      schemaFilePath: .
