@@ -1,11 +1,16 @@
-from sqlalchemy import String, Integer, DateTime, create_engine, ForeignKey, Column, func, Table, MetaData
+from sqlalchemy import String, Integer, DateTime, create_engine, ForeignKey, Column, func, Table, MetaData, Boolean
 from sqlalchemy.ext.declarative import declarative_base
-
-
 
 Base = declarative_base()
 metadata = MetaData()
 DATABASE_URL = "postgresql://practice_user:Vaibhav1@localhost/campaigdb"
+engine = create_engine(DATABASE_URL)
+Base.metadata.create_all(engine)
+
+auth_user = Table(
+        'auth_user', metadata, autoload_with = engine
+)
+
 
 # UserCampaign
 # This will be a normal user with no extra features just a type{admin, user, superuser}
@@ -36,5 +41,10 @@ class UserCampaignSequence(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-engine = create_engine(DATABASE_URL)
-Base.metadata.create_all(engine)
+class UserMessages(Base):
+    __tablename__ = 'user_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('auth_user.id', ondelete='CASCADE'), nullable=False)
+    is_selected = Column(Boolean, default=True)
