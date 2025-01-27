@@ -32,7 +32,8 @@ SECRET_KEY = 'django-insecure-l1bz$vza@q&kmepopts+0$-i)*#*t#!941%1wrfzhty90tz(c)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+
 
 
 # Application definition
@@ -47,19 +48,22 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'practice_users',
+    'rest_framework_simplejwt',
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    "corsheaders.middleware.CorsMiddleware",
+    
     "django.middleware.common.CommonMiddleware",
-    'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+MIDDLEWARE += ['practice_users.middleware.SessionExpiryMiddleware']
 
 ROOT_URLCONF = 'campaign_services.urls'
 
@@ -79,7 +83,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'campaign_services.wsgi.application'
+
 
 
 # Database
@@ -143,9 +147,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.BasicAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    ]
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    
 }
 
 LOGGING = {
@@ -179,5 +183,27 @@ LOGGING = {
 }
 
 
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOWS_CREDENTIALS = True
+
+
+# Session configuration
+# SESSION_ENGINE = "django.contrib.sessions.backends.db"  # Database-backed session storage
+
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # Session persists if browser closes
+
+# SESSION_SAVE_EVERY_REQUEST = True  # Update session expiry on every request
+# Ensure these settings are properly configured
+
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Frontend address
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",  # Frontend address
+]
+
+
+
+SESSION_SAVE_EVERY_REQUEST = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ORIGIN_ALLOW_ALL = True  # Or set specific origins

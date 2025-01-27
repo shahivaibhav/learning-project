@@ -85,3 +85,7 @@ class NewPracticeSerializer(serializers.Serializer):
             'roles': instance.roles,
             'user_id': instance.user_id
         }
+    
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField(required=True)
+    password = serializers.CharField(write_only=True, required=True)

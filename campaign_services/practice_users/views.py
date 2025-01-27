@@ -4,21 +4,51 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth.models import User
 from .models import PracticeUser
-from .serializers import UserSerializer, NewPracticeSerializer
+from .serializers import UserSerializer, NewPracticeSerializer,LoginSerializer
 from .services import Sessionhelper
  
 from rest_framework.views import APIView
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate, login, logout
 from .models import auth_user
 from django.contrib.auth.hashers import make_password, check_password
+from django.http import JsonResponse
+from django.shortcuts import redirect
+from django.views.decorators.http import require_http_methods
+from rest_framework_simplejwt.tokens import RefreshToken
+
+def session_status(request):
+    if request.user.is_authenticated:
+        return JsonResponse({"active": True}, status=200)
+    return JsonResponse({"active": False}, status=400)
+    
+def logout_view(request):
+    if request.user.is_authenticated:
+        logout(request)  # Log out and clear session
+    return JsonResponse({"message": "Logged out successfully"}, status=200)
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth.hashers import make_password, check_password
-from .models import auth_user
-from .services import Sessionhelper
+class GetUserRoleView(APIView):
+    def post(self, request):
+        # Assuming 'username' is passed in the request (or you can get it from the request headers, etc.)
+        username = request.user.username  # or you can get username from request.query_params if needed
+        
+        if username:
+            # Query the model to check if username exists
+            user = User.objects.filter(username=username).first()
+            if user:
+                # User exists, check the role
+                session = Sessionhelper.create_session()
+                practice_user = session.query(PracticeUser).filter_by(user_id=user.id).first()
+                if practice_user is not None:
+                    return Response({"message": "Get user role successfully", "role": practice_user.roles}, status=status.HTTP_200_OK)
+                else:
+                    return Response({"message": "Practice User not found"}, status=status.HTTP_404_NOT_FOUND)
+            else:
+                return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({"message": "Username not provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        
 
 class ResetPasswordView(APIView):
     def post(self, request, *args, **kwargs):
@@ -59,8 +89,6 @@ class ResetPasswordView(APIView):
 
         return Response({"message": "Password reset successful"}, status=status.HTTP_200_OK)
 
-
-
 class RegisterView(APIView):
 
     def post(self, request, *args, **kwargs):
@@ -96,28 +124,36 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
-    def post(self, request, *args, **kwargs):
-        username = request.data.get('username')
-        password = request.data.get('password')
+    def post(self, request):
+        
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            username = serializer.validated_data.get('username', "")
+            password = serializer.validated_data.get('password', "")
 
-        user = authenticate(username=username, password=password)
-        if user:
-            login(request, user)
-            session = Sessionhelper.create_session()
+            user = authenticate(username=username, password=password)
+            if user is not None:
+                refresh = RefreshToken.for_user(user)
+                session = Sessionhelper.create_session()
+                role = None
+                practice_user = session.query(PracticeUser).filter_by(user_id=user.id).first()
 
-            # Query the PracticeUser using SQLAlchemy
-            practice_user = session.query(PracticeUser).filter_by(user_id=user.id).first()
-
-            if not practice_user:
-                return Response({"error": "PracticeUser not found"}, status=status.HTTP_404_NOT_FOUND)
-
+                if practice_user:
+                    role = practice_user.roles
+                    email = user.email
+                return Response({
+                    "refresh": str(refresh), "access": str(refresh.access_token), 
+                    "role" : role,
+                    "email" : email,
+                    "message ": "Login successfull"})
+                
             
-            role = practice_user.roles
-            
-            
-            return Response({"message": "Login successful", "role": role})
+            else:
+                return Response({"error": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"error": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class PracticeUserViewSet(viewsets.ViewSet):
     
