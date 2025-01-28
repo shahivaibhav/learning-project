@@ -14,6 +14,7 @@ from pathlib import Path
 import logging
 import os
 from dotenv import load_dotenv
+from datetime import timedelta
 
 load_dotenv()
 
@@ -152,6 +153,11 @@ REST_FRAMEWORK = {
     
 }
 
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),  # Token valid for 60 minutes
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),    # Refresh token valid for 7 days
+}
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -207,3 +213,13 @@ CSRF_TRUSTED_ORIGINS = [
 SESSION_SAVE_EVERY_REQUEST = True
 CORS_ALLOW_CREDENTIALS = True
 CORS_ORIGIN_ALLOW_ALL = True  # Or set specific origins
+
+# settings.py
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # Example for Gmail
+EMAIL_PORT = 587  # TLS port
+EMAIL_USE_TLS = True  # Use TLS for secure connection
+EMAIL_HOST_USER = 'vaibhav.shahi@practicenumbers.com'  # Your email address
+EMAIL_HOST_PASSWORD = 'otsi ctyu ufhs hxax'  # Provided password
+

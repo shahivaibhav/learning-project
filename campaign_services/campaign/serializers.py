@@ -57,3 +57,7 @@ class UserCampaignSerializer(CustomUserSerializer):
             return instance
         except Exception as e:
             logger.error(f"Error encounter during creation of usercampaign here , the error is : {e}")
+
+class EmailSerializer(CustomUserSerializer):
+    on_email = serializers.BooleanField(default=True)
+

@@ -1,14 +1,14 @@
 from sqlalchemy import String, Integer, DateTime, create_engine, ForeignKey, Column, func, Table, MetaData, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 
-Base = declarative_base()
 metadata = MetaData()
+Base = declarative_base(metadata=metadata)
 DATABASE_URL = "postgresql://practice_user:Vaibhav1@localhost/campaigdb"
 engine = create_engine(DATABASE_URL)
-Base.metadata.create_all(engine)
+
 
 auth_user = Table(
-        'auth_user', metadata, autoload_with = engine
+    'auth_user', metadata, autoload_with = engine
 )
 
 
@@ -48,3 +48,10 @@ class UserMessages(Base):
     user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
     user_id = Column(Integer, ForeignKey('auth_user.id', ondelete='CASCADE'), nullable=False)
     is_selected = Column(Boolean, default=True)
+
+class SendCampaign(Base):
+    __tablename__ = 'send_campaigns'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
+    

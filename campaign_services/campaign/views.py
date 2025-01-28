@@ -1,7 +1,7 @@
 from django.shortcuts import render
-from .serializers import UserCampaignSerializer
+from .serializers import UserCampaignSerializer, EmailSerializer
 from rest_framework import viewsets
-from .models import UserCampaign, UserMessages
+from .models import UserCampaign, UserMessages, SendCampaign
 from practice_users.models import PracticeUser
 from practice_users.services import Sessionhelper
 from django.contrib.auth.models import User
@@ -9,6 +9,8 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 import logging
+from django.core.mail import send_mail
+from django.contrib.auth.models import User as DjangoUser
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +177,7 @@ class UserCampaignSuperAdminViewSet(viewsets.ViewSet):
             session.commit()
 
             response_serializer = UserCampaignSerializer(campaign)
-            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            return Response( response_serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response(str(e), status=status.HTTP_404_NOT_FOUND)
         finally:
@@ -255,4 +257,109 @@ class UserMessagesViewSet(viewsets.ViewSet):
         finally:
             session.close()
 
+class SendEmailViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def create(self, request, *args, **kwargs):
+        # Extract campaign_id from the URL
+        campaign_id = kwargs.get('campaign_id')
+        if not campaign_id:
+            return Response({"error": "Campaign ID not found in URL!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate request data using serializer
+        serializer = EmailSerializer(data=request.data)
+        if serializer.is_valid():
+            # Check whether to send via email or as messages
+            send_via_email = serializer.validated_data['on_email']
+            session = Sessionhelper.create_session()
+
+            try:
+                # Fetch campaign using campaign_id
+                campaign = session.query(UserCampaign).filter(
+                    UserCampaign.id == campaign_id,
+                    UserCampaign.status == 'pending' if send_via_email else None
+                ).first()
+
+                if not campaign:
+                    return Response({"error": "No campaign found!"}, status=status.HTTP_404_NOT_FOUND)
+
+                if send_via_email:
+                    # Email sending logic
+                    subject = campaign.text
+                    message = campaign.description
+                    practice_users = session.query(PracticeUser).filter(PracticeUser.roles == 'practice user').all()
+                    practice_user_ids = [user.user_id for user in practice_users]
+                    practice_user_emails = User.objects.filter(id__in=practice_user_ids).values_list('email', flat=True)
+
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email="vaibhav.shahi@practicenumbers.com",
+                        recipient_list=practice_user_emails
+                    )
+
+                    sent_mail_entry = SendCampaign(user_campaign_id=campaign_id)
+                    session.add(sent_mail_entry)
+                    session.commit()
+
+                    return Response({"success": "Email sent successfully!"}, status=status.HTTP_201_CREATED)
+
+                else:
+                    # Message sending logic
+                    practice_users = session.query(PracticeUser).filter(PracticeUser.roles == 'practice user').all()
+                    practice_user_ids = [user.user_id for user in practice_users]
+
+                    for user_id in practice_user_ids:
+                        # Avoid duplicate messages
+                        existing_message = session.query(UserMessages).filter_by(
+                            user_id=user_id,
+                            user_campaign_id=campaign.id
+                        ).first()
+
+                        if not existing_message:
+                            new_message = UserMessages(user_id=user_id, user_campaign_id=campaign.id)
+                            session.add(new_message)
+                            session.commit()
+
+                    return Response({"message": "Message sent successfully!"}, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+            finally:
+                session.close()
+        else:
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
         
+
+class AllSentCampaigns(viewsets.ViewSet):
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def list(self, request, *args, **kwargs):
+        # Create a session to query the database
+        session = Sessionhelper.create_session()
+
+        try:
+            
+            sent_campaigns = session.query(SendCampaign).all()
+
+            # Collect the text and description for each sent campaign by joining with the UserCampaign table
+            response_data = []
+            for sent_campaign in sent_campaigns:
+                campaign = session.query(UserCampaign).filter(UserCampaign.id == sent_campaign.user_campaign_id).first()
+                if campaign:
+                    response_data.append({
+                        "text": campaign.text,
+                        "description": campaign.description
+                    })
+
+            # Return the list of campaigns with text and description
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        finally:
+            session.close()
+
