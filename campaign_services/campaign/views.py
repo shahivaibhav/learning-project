@@ -334,7 +334,7 @@ class SendEmailViewSet(viewsets.ViewSet):
 
 class AllSentCampaigns(viewsets.ViewSet):
 
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def list(self, request, *args, **kwargs):
         # Create a session to query the database
