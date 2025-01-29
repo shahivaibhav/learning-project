@@ -11,6 +11,7 @@ from rest_framework import status
 import logging
 from django.core.mail import send_mail
 from django.contrib.auth.models import User as DjangoUser
+from rest_framework.decorators import action
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def If_User_Admin(user_id_):
         print(user)
         if user is not None:
             role = user.roles
-            if(role == "admin"):
+            if role == "admin":
                 return True
             else:
                 return False
@@ -64,6 +65,28 @@ def If_User_Admin(user_id_):
     finally:
         session.close()    
     
+
+def If_User_Practice_User(user_id_):
+
+    session = Sessionhelper.create_session()
+    
+    try:
+        user = session.query(PracticeUser).filter_by(user_id = user_id_).first()
+
+        if user is not None:
+            role = user.roles
+            if role == "practice user":
+                return True
+            else:
+                return False
+            
+        else:
+            return False
+
+    except Exception as e:
+        return False
+    finally:
+        session.close()
 
 class IsSuperAdmin(BasePermission):
 
@@ -85,6 +108,15 @@ class IsAdmin(BasePermission):
             return True
         
         print("Error in isSuperAddmin Function.. ")
+        return False
+
+
+class IsPracticeUser(BasePermission):
+
+    def has_permission(self, request, view):
+        
+        if If_User_Practice_User(request.user.id):
+            return True
         return False
 
 class UserCampaignSuperAdminViewSet(viewsets.ViewSet):
@@ -273,11 +305,13 @@ class SendEmailViewSet(viewsets.ViewSet):
             send_via_email = serializer.validated_data['on_email']
             session = Sessionhelper.create_session()
 
+            print("i am here")
+
             try:
                 # Fetch campaign using campaign_id
                 campaign = session.query(UserCampaign).filter(
                     UserCampaign.id == campaign_id,
-                    UserCampaign.status == 'pending' if send_via_email else None
+                    UserCampaign.status == 'pending'
                 ).first()
 
                 if not campaign:
@@ -309,6 +343,8 @@ class SendEmailViewSet(viewsets.ViewSet):
                     practice_users = session.query(PracticeUser).filter(PracticeUser.roles == 'practice user').all()
                     practice_user_ids = [user.user_id for user in practice_users]
 
+                    print(len(practice_user_ids), "user ids")
+
                     for user_id in practice_user_ids:
                         # Avoid duplicate messages
                         existing_message = session.query(UserMessages).filter_by(
@@ -331,7 +367,6 @@ class SendEmailViewSet(viewsets.ViewSet):
         else:
             return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
         
-
 class AllSentCampaigns(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
@@ -342,24 +377,87 @@ class AllSentCampaigns(viewsets.ViewSet):
 
         try:
             
-            sent_campaigns = session.query(SendCampaign).all()
+            sent_campaigns_email = session.query(SendCampaign).all()
+            sent_campaigns_messages = session.query(UserMessages).all()
 
-            # Collect the text and description for each sent campaign by joining with the UserCampaign table
+            # Collect the text and description for each sent campaign via email
             response_data = []
-            for sent_campaign in sent_campaigns:
+            for sent_campaign in sent_campaigns_email:
                 campaign = session.query(UserCampaign).filter(UserCampaign.id == sent_campaign.user_campaign_id).first()
                 if campaign:
                     response_data.append({
+                        "status": campaign.status,
+                        "campaign_id": campaign.id,
                         "text": campaign.text,
-                        "description": campaign.description
+                        "description": campaign.description,
+                        "sent_via": "email"
+                    })
+
+            # Collect the text and description for each sent campaign via messages
+            for sent_message in sent_campaigns_messages:
+                campaign = session.query(UserCampaign).filter(UserCampaign.id == sent_message.user_campaign_id).first()
+                if campaign:
+                    response_data.append({
+                        "status": campaign.status,
+                        "campaign_id": campaign.id,
+                        "text": campaign.text,
+                        "description": campaign.description,
+                        "sent_via": "message"
                     })
 
             # Return the list of campaigns with text and description
             return Response(response_data, status=status.HTTP_200_OK)
-
+        
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         finally:
             session.close()
 
+class AcceptOrRejectCampaign(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsPracticeUser]
+
+    def create(self, request, *args, **kwargs):
+        # Placeholder for your create method
+        pass
+
+    def update(self, request, *args, **kwargs):
+        # Get campaign_id from request data
+        campaign_id = kwargs.get('pk')
+
+        if not campaign_id:
+            return Response({"error": "Campaign ID not found!"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Create a session to query the database
+            session = Sessionhelper.create_session()
+
+            # Fetch the campaign object using the passed campaign_id
+            campaign = session.query(UserCampaign).filter_by(id=campaign_id).first()  # Fix: Add parentheses after first()
+
+            if not campaign:
+                return Response({"error": "Campaign ID not found!"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Check the current status of the campaign
+            campaign_status = campaign.status
+
+            # If the campaign is already active
+            if campaign_status == "active":
+                return Response({"message": "Campaign already active!"}, status=status.HTTP_406_NOT_ACCEPTABLE)
+            
+            # If the campaign is pending, update the status to active
+            if campaign_status == "pending":
+                campaign.status = "active"  # Fix: Directly update the campaign status
+                session.commit()  # Commit the changes to the database
+                return Response({"message": "Campaign status updated to active!"}, status=status.HTTP_200_OK)
+            
+            else:
+                return Response({"error": "Unexpected campaign status!"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        except Exception as e:
+            # If any exception occurs, return error message
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+        finally:
+            # Close the session after the operation
+            session.close()
