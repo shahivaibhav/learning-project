@@ -37,8 +37,7 @@ class UserCampaignSequence(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
     scheduled_date = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
 
 
 class UserMessages(Base):

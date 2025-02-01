@@ -38,10 +38,7 @@ def upgrade() -> None:
         sa.Column('id', Integer, primary_key=True, autoincrement=True),
         sa.Column('user_campaign_id', Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False),
         sa.Column('scheduled_date', DateTime(timezone=True), nullable=False),
-        sa.Column('status', String, nullable=True),
-        sa.Column('created_at', DateTime(timezone=True), server_default=func.now(), nullable=False),
-        sa.Column('updated_at', DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False),
-        sa.Column('created_by', Integer, nullable=False)
+       
     )
 
 

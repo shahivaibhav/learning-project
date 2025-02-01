@@ -20,13 +20,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'user_messages',
-        sa.Column('id', Integer, primary_key=True, autoincrement=True, nullable=False),
-        sa.Column('user_campaign_id', Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('user_id', Integer, ForeignKey('auth_user.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('is_selected', Boolean, default=True)
-    )
+    pass
+    # op.create_table(
+    #     'user_messages',
+    #     sa.Column('id', Integer, primary_key=True, autoincrement=True, nullable=False),
+    #     sa.Column('user_campaign_id', Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False),
+    #     sa.Column('user_id', Integer, ForeignKey('auth_user.id', ondelete='CASCADE'), nullable=False),
+    #     sa.Column('is_selected', Boolean, default=True)
+    # )
 
 
 def downgrade() -> None:

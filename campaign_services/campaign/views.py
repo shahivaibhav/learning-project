@@ -1,7 +1,7 @@
 from django.shortcuts import render
-from .serializers import UserCampaignSerializer, EmailSerializer
+from .serializers import UserCampaignSerializer, EmailSerializer, UserCampaignScheduleSerializer
 from rest_framework import viewsets
-from .models import UserCampaign, UserMessages, SendCampaign
+from .models import UserCampaign, UserMessages, SendCampaign, UserCampaignSequence
 from practice_users.models import PracticeUser
 from practice_users.services import Sessionhelper
 from django.contrib.auth.models import User
@@ -10,10 +10,15 @@ from rest_framework.response import Response
 from rest_framework import status
 import logging
 from django.core.mail import send_mail
-from django.contrib.auth.models import User as DjangoUser
-from rest_framework.decorators import action
+from celery import Celery
+from .tasks import send_campaign_at_scheduled_time
+from django.utils import timezone
+from pytz import timezone as pytz_timezone  # Only use pytz for actual timezone conversion
+from datetime import timedelta
+
 
 logger = logging.getLogger(__name__)
+
 
 def If_User_SuperAdmin(user_id_):
     session = Sessionhelper.create_session()
@@ -366,7 +371,7 @@ class SendEmailViewSet(viewsets.ViewSet):
                 session.close()
         else:
             return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-        
+
 class AllSentCampaigns(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
@@ -414,7 +419,7 @@ class AllSentCampaigns(viewsets.ViewSet):
         finally:
             session.close()
 
-class AcceptOrRejectCampaign(viewsets.ViewSet):
+class AcceptOrRejectCampaignViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsPracticeUser]
 
     def create(self, request, *args, **kwargs):
@@ -461,3 +466,53 @@ class AcceptOrRejectCampaign(viewsets.ViewSet):
         finally:
             # Close the session after the operation
             session.close()
+
+
+class ScheduleCampaignsViewSet(viewsets.ViewSet):
+    
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def create(self, request, *args, **kwargs):
+        serializer = UserCampaignScheduleSerializer(data=request.data)
+
+        if serializer.is_valid():
+            scheduled_datetime = serializer.validated_data.get('scheduled_datetime')
+            campaign_id = serializer.validated_data.get('user_campaign_id')
+        
+            try:
+                session = Sessionhelper.create_session()
+                campaign = session.query(UserCampaign).filter(UserCampaign.id == campaign_id).first()
+
+                if campaign:
+                    # Convert to Indian Standard Time (IST)
+                    ist = pytz_timezone('Asia/Kolkata')
+                    if timezone.is_naive(scheduled_datetime):
+                        scheduled_datetime = timezone.make_aware(scheduled_datetime)  # Make it aware in the system's timezone (UTC)
+                    
+                    scheduled_datetime = scheduled_datetime.astimezone(ist)  # Convert it to IST
+
+                    # Create the schedule entry (if needed)
+                    schedule_entry = UserCampaignSequence(
+                        user_campaign_id=campaign_id,
+                        scheduled_date=scheduled_datetime
+                    )
+
+                    session.add(schedule_entry)
+                    session.commit()
+
+                    # Schedule the task with specific IST time
+                    send_campaign_at_scheduled_time.apply_async(
+                        args=[campaign_id],
+                        eta=scheduled_datetime
+                    )
+
+                    return Response(
+                        {"success": f"Campaign scheduled for {scheduled_datetime}!"}, 
+                        status=status.HTTP_201_CREATED
+                    )
+            except Exception as e:
+                return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
+            finally:
+                session.close()
+        else :
+            return Response({"error" : "Serializer not valid!"}, status=status.HTTP_400_BAD_REQUEST)
