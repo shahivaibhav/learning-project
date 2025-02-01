@@ -62,7 +62,6 @@ class EmailSerializer(CustomUserSerializer):
     on_email = serializers.BooleanField(default=True)
     
 class UserCampaignScheduleSerializer(CustomUserSerializer):
-    user_campaign_id = serializers.IntegerField(required=True)
     scheduled_datetime = serializers.DateTimeField(required=True)
 
     

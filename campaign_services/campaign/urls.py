@@ -7,7 +7,6 @@ router.register(r'campaign-superadmin', UserCampaignSuperAdminViewSet, basename=
 router.register(r'campaign-admin', UserCampaignAdminViewSet, basename="admin-views")
 router.register(r'messages', UserMessagesViewSet, basename="user-message")
 router.register(r'all-sent-messages', AllSentCampaigns, basename="sent-messages")
-router.register(r'campaign-schedule', ScheduleCampaignsViewSet, basename="email-schedule")
 
 
 urlpatterns = [
@@ -15,5 +14,6 @@ urlpatterns = [
     path('api/', include(router.urls)),
     path('api/send-email/<int:campaign_id>/', SendEmailViewSet.as_view({'post': 'create'}), name='send-email'),
     path('api/accept/<int:pk>', AcceptOrRejectCampaignViewSet.as_view({'put': 'update'}), name='accept-reject-campaign'),
+    path('api/schedule_campaigns/<int:campaign_id>/', ScheduleCampaignsViewSet.as_view({'post': 'create'}), name='schedule_campaign'),
     
 ]

@@ -473,11 +473,16 @@ class ScheduleCampaignsViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def create(self, request, *args, **kwargs):
+
+        campaign_id = kwargs.get('campaign_id')
         serializer = UserCampaignScheduleSerializer(data=request.data)
+
+        if not campaign_id:
+            return Response({"error message" : "Campaign id not found"}, status=status.HTTP_404_NOT_FOUND)
 
         if serializer.is_valid():
             scheduled_datetime = serializer.validated_data.get('scheduled_datetime')
-            campaign_id = serializer.validated_data.get('user_campaign_id')
+            
         
             try:
                 session = Sessionhelper.create_session()
