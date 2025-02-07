@@ -3,10 +3,10 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth.models import User
-from .models import PracticeUser
+from .models import PracticeUser, NewPractices, engine
 from .serializers import UserSerializer, NewPracticeSerializer,LoginSerializer
 from .services import Sessionhelper
- 
+from sqlalchemy import Table, MetaData
 from rest_framework.views import APIView
 from django.contrib.auth import authenticate, login, logout
 from .models import auth_user
@@ -15,6 +15,13 @@ from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from rest_framework_simplejwt.tokens import RefreshToken
+from sqlalchemy import select
+
+metadata = MetaData()
+auth_user = Table(
+        'auth_user', metadata, autoload_with = engine
+)
+
 
 def session_status(request):
     if request.user.is_authenticated:
@@ -47,8 +54,6 @@ class GetUserRoleView(APIView):
                 return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             return Response({"message": "Username not provided"}, status=status.HTTP_400_BAD_REQUEST)
-
-        
 
 class ResetPasswordView(APIView):
     def post(self, request, *args, **kwargs):
@@ -121,8 +126,6 @@ class RegisterView(APIView):
         else:
             return Response(user_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
-
 class LoginView(APIView):
     def post(self, request):
         
@@ -154,7 +157,6 @@ class LoginView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-
 class PracticeUserViewSet(viewsets.ViewSet):
     
     def list(self, request, *arg, **kwargs):
@@ -165,34 +167,80 @@ class PracticeUserViewSet(viewsets.ViewSet):
         serializer = NewPracticeSerializer(practice_user, many=True)
         return Response(serializer.data)
     
+    
     def create(self, request, *args, **kwargs):
-
         session = Sessionhelper.create_session()
-
         practice_user_data = request.data
         print(practice_user_data)
+
+        is_new_practice = practice_user_data.get("is_new_practice", True)  # Default is new practice
+
         user_serializer = UserSerializer(data=practice_user_data)
 
         if user_serializer.is_valid():
             user = user_serializer.save()
-            remaining_user_data = {
-                'roles': practice_user_data.get('roles', ''),  # Default to an empty string if role is missing
-                'user_id': user.id,
-            }
 
-            new_user = PracticeUser(**remaining_user_data)
-            session.add(new_user)
-            session.commit()
-            session.refresh(new_user)
+            if is_new_practice:
+                # Create new practice user (Already implemented)
+                remaining_user_data = {
+                    "roles": practice_user_data.get("roles", ""),  
+                    "user_id": user.id,
+                }
+                new_user = PracticeUser(**remaining_user_data)
+                session.add(new_user)
+                session.commit()
+                session.refresh(new_user)
 
-            return Response({
-                "user_id" : user.id,
-                "practice_user_id" : new_user.id,
-                "message" : "User and Practice User are linked up!" 
-            }, status=status.HTTP_201_CREATED)
+                return Response({
+                    "user_id": user.id,
+                    "practice_user_id": new_user.id,
+                    "message": "User and Practice User are linked up!"
+                }, status=status.HTTP_201_CREATED)
+            
+            else:
+                # Associate with an existing practice
+                existing_practice_id = practice_user_data.get("existing_practice_id")
+                
+                if not existing_practice_id:
+                    return Response({"error": "existing_practice_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Validate if practice exists
+                existing_practice = session.query(PracticeUser).filter_by(id=existing_practice_id).first()
+                if not existing_practice:
+                    return Response({"error": "Invalid existing practice ID"}, status=status.HTTP_404_NOT_FOUND)
+
+                # Link user to existing practice
+                new_association = NewPractices(existing_user_id=user.id)
+                session.add(new_association)
+                session.commit()
+                session.refresh(new_association)
+
+                return Response({
+                    "user_id": user.id,
+                    "existing_practice_id": existing_practice_id,
+                    "association_id": new_association.id,
+                    "message": "User associated with existing practice!"
+                }, status=status.HTTP_201_CREATED)
+
         else:
-            return Response(
-                user_serializer.errors, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response(user_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-   
+
+class AllPracticeUser(viewsets.ViewSet):
+    def list(self, request, *args, **kwargs):
+        session = Sessionhelper.create_session()
+
+        # Query all practice users with the role 'practice user'
+        practice_users = session.query(PracticeUser).filter(PracticeUser.roles == 'practice user').all()
+
+        # Extract the user IDs from practice users and query the User table
+        user_ids = [practice_user.user_id for practice_user in practice_users]
+        print(user_ids)
+        
+        stmt = select(auth_user.c.first_name, auth_user.c.id).where(auth_user.c.id.in_(user_ids))
+        result = session.execute(stmt).fetchall()
+
+        # Prepare response data
+        response_data = [{"name": row.first_name, "id": row.id} for row in result]
+
+        return Response(response_data, status=status.HTTP_200_OK)

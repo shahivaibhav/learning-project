@@ -26,6 +26,8 @@ class UserCampaign(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_by = Column(Integer, nullable=False)# id of the super user who has created this campaign
+    is_deleted = Column(Boolean, default=False, server_default='false')
+    
 
 
 #UserCampaignSequence :- In this model, we will make a relationship with userCampaign as one campaign can have sub-campaigns.So this model represents the sub-campaign
@@ -47,10 +49,16 @@ class UserMessages(Base):
     user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
     user_id = Column(Integer, ForeignKey('auth_user.id', ondelete='CASCADE'), nullable=False)
     is_selected = Column(Boolean, default=True)
+    sent_by = Column(Integer, nullable=False)
+    sent_at = Column(DateTime, server_default=func.now(), nullable=False)
+    seen = Column(Boolean, default=False)
 
 class SendCampaign(Base):
     __tablename__ = 'send_campaigns'
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     user_campaign_id = Column(Integer, ForeignKey('user_campaign.id', ondelete='CASCADE'), nullable=False)
+    sent_by = Column(Integer, nullable=False)
+    sent_at = Column(DateTime, server_default=func.now(), nullable=False)
+    seen = Column(Boolean, default=False)
     

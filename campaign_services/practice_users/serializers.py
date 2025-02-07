@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import PracticeUser
+from .models import PracticeUser, NewPractices
 
 class CustomUserSerializer(serializers.Serializer):
 
@@ -84,6 +84,25 @@ class NewPracticeSerializer(serializers.Serializer):
             'id': instance.id,
             'roles': instance.roles,
             'user_id': instance.user_id
+        }
+    
+
+class ExistingPracticesSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    existing_user_id = serializers.IntegerField(required=True)
+
+    def create(self, validated_data):
+        return NewPractices.objects.create(**validated_data)
+    
+    def update(self, instance, validated_data):
+        instance.existing_user_id = validated_data.get('existing_user_id', instance.existing_user_id)
+        instance.save()
+        return instance
+    
+    def to_representation(self, instance):
+        return {
+            'id': instance.id,
+            'existing_user_id' : instance.existing_user_id
         }
     
 class LoginSerializer(serializers.Serializer):

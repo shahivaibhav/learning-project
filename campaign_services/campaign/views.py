@@ -2,6 +2,7 @@ from django.shortcuts import render
 from .serializers import UserCampaignSerializer, EmailSerializer, UserCampaignScheduleSerializer
 from rest_framework import viewsets
 from .models import UserCampaign, UserMessages, SendCampaign, UserCampaignSequence
+from practice_users.models import engine
 from practice_users.models import PracticeUser
 from practice_users.services import Sessionhelper
 from django.contrib.auth.models import User
@@ -15,10 +16,22 @@ from .tasks import send_campaign_at_scheduled_time
 from django.utils import timezone
 from pytz import timezone as pytz_timezone  # Only use pytz for actual timezone conversion
 from datetime import timedelta
-
+from rest_framework.pagination import PageNumberPagination
+from sqlalchemy import asc, desc
+from sqlalchemy import Table, MetaData, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+metadata = MetaData()
+Base = declarative_base(metadata=metadata)
+DATABASE_URL = "postgresql://practice_user:Vaibhav1@localhost/campaigdb"
+engine = create_engine(DATABASE_URL)
+
+auth_user = Table(
+    'auth_user', metadata, autoload_with = engine
+)
 
 def If_User_SuperAdmin(user_id_):
     session = Sessionhelper.create_session()
@@ -93,6 +106,20 @@ def If_User_Practice_User(user_id_):
     finally:
         session.close()
 
+
+def If_User_SuperAdmin_Or_Admin(user_id_):
+    session = Sessionhelper.create_session()
+
+    try:
+        if If_User_SuperAdmin(user_id_) or If_User_Admin(user_id_):
+            return True
+        else:
+            return False
+    except Exception as e:
+        return False
+    finally:
+        session.close()
+
 class IsSuperAdmin(BasePermission):
 
     def has_permission(self, request, view):
@@ -115,7 +142,6 @@ class IsAdmin(BasePermission):
         print("Error in isSuperAddmin Function.. ")
         return False
 
-
 class IsPracticeUser(BasePermission):
 
     def has_permission(self, request, view):
@@ -124,10 +150,25 @@ class IsPracticeUser(BasePermission):
             return True
         return False
 
+class IsSuperAdminOrAdmin(BasePermission):
+
+    def has_permission(self, request, view):
+        
+        if If_User_SuperAdmin_Or_Admin(request.user.id):
+            return True
+        return False
+
 class UserCampaignSuperAdminViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, IsSuperAdmin]
     
+
+    class CustomPagination(PageNumberPagination):
+        page_size = 6
+        page_size_query_param = 'page_size'
+        max_page_size = 100
+
+
     def create(self, request, *args, **kwargs):
         created_by = request.user.id
         print(request.data, "User Campaign Viewset request.data")
@@ -168,12 +209,28 @@ class UserCampaignSuperAdminViewSet(viewsets.ViewSet):
     def list(self, request, *args, **kwargs):
         try:
             session = Sessionhelper.create_session()
-            campaigns = session.query(UserCampaign).all()
+            search_query = request.GET.get('search', '')  # Get search term from request
+            order = request.GET.get('order', 'desc').lower()
+            sort_by = request.GET.get('sort_by', 'created_at')
 
-            serializer = UserCampaignSerializer(campaigns, many=True)
-            return Response(serializer.data)
+            campaigns = session.query(UserCampaign).filter(UserCampaign.is_deleted == False)
+
+            if search_query:
+                campaigns = campaigns.filter(UserCampaign.type.ilike(f"%{search_query}%"))
+
+            if hasattr(UserCampaign, sort_by):
+                order_func = desc if order == 'desc' else asc
+                campaigns = campaigns.order_by(order_func(getattr(UserCampaign, sort_by)))
+
+            paginator = self.CustomPagination()
+            result_page = paginator.paginate_queryset(campaigns.all(), request, view=self)
+            serializer = UserCampaignSerializer(result_page, many=True)
+
+            return paginator.get_paginated_response(serializer.data)
+
         except Exception as e:
-            return Response({"error message": str(e)}, status=status.HTTP_405_METHOD_NO)
+            return Response({"error message": str(e)}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
         finally:
             session.close()
         
@@ -228,7 +285,7 @@ class UserCampaignSuperAdminViewSet(viewsets.ViewSet):
             if not campaign:
                 return Response({"error message": "There is no campaign to delete"}, status=status.HTTP_404_NOT_FOUND)
 
-            session.delete(campaign)
+            campaign.is_deleted = True
             session.commit()
 
             return Response({"message": "Campaign deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
@@ -241,18 +298,40 @@ class UserCampaignSuperAdminViewSet(viewsets.ViewSet):
 class UserCampaignAdminViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    class CustomPagination(PageNumberPagination):
+        page_size = 5  # Default page size
+        page_size_query_param = 'page_size'
+        max_page_size = 100
+
     def list(self, request, *args, **kwargs):
         try:
             session = Sessionhelper.create_session()
-            campaigns = session.query(UserCampaign).all()
+            search_query = request.GET.get('search', '')  # Get search term from request
+            sort_by = request.GET.get('sort_by', 'created_at')
+            order = request.GET.get('order', 'desc')
 
-            serializer = UserCampaignSerializer(campaigns, many=True)
-            return Response(serializer.data)
+            campaigns = session.query(UserCampaign).filter(UserCampaign.is_deleted == False)
+            if search_query:
+                campaigns = campaigns.filter(UserCampaign.type.ilike(f"%{search_query}%")) 
+
+            if hasattr(UserCampaign, sort_by):
+                order_func = desc if order == 'desc' else asc
+                campaigns = campaigns.order_by(order_func(getattr(UserCampaign, sort_by)))
+
+            # Apply pagination
+            paginator = self.CustomPagination()
+            result_page = paginator.paginate_queryset(campaigns.all(), request, view=self)
+            serializer = UserCampaignSerializer(result_page, many=True)
+
+            return paginator.get_paginated_response(serializer.data)
+
         except Exception as e:
             return Response({"error message": str(e)}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
         finally:
             session.close()
-        
+
+
 class UserMessagesViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
@@ -295,129 +374,192 @@ class UserMessagesViewSet(viewsets.ViewSet):
             session.close()
 
 class SendEmailViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        # Extract campaign_id from the URL
-        campaign_id = kwargs.get('campaign_id')
-        if not campaign_id:
-            return Response({"error": "Campaign ID not found in URL!"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate request data using serializer
+        campaign_ids = request.data.get("campaign_ids", [])
+        practice_user_ids = request.data.get('practice_users_ids', [])
+
+        if not campaign_ids or not isinstance(campaign_ids, list):
+            return Response({"error": "Invalid or missing campaign IDs!"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not practice_user_ids or not isinstance(practice_user_ids, list):
+            return Response({"error": "Invalid or missing campaign IDs!"}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = EmailSerializer(data=request.data)
-        if serializer.is_valid():
-            # Check whether to send via email or as messages
-            send_via_email = serializer.validated_data['on_email']
-            session = Sessionhelper.create_session()
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            print("i am here")
+        send_via_email = serializer.validated_data["on_email"]
+        session = Sessionhelper.create_session()
 
-            try:
-                # Fetch campaign using campaign_id
-                campaign = session.query(UserCampaign).filter(
-                    UserCampaign.id == campaign_id,
-                    UserCampaign.status == 'pending'
-                ).first()
+        # Get the logged-in user's ID
+        sender_id = request.user.id
+        sent_at = datetime.now()
 
-                if not campaign:
-                    return Response({"error": "No campaign found!"}, status=status.HTTP_404_NOT_FOUND)
+        print(request.user)
+        print(vars(request.user))
 
-                if send_via_email:
-                    # Email sending logic
-                    subject = campaign.text
-                    message = campaign.description
-                    practice_users = session.query(PracticeUser).filter(PracticeUser.roles == 'practice user').all()
-                    practice_user_ids = [user.user_id for user in practice_users]
-                    practice_user_emails = User.objects.filter(id__in=practice_user_ids).values_list('email', flat=True)
+        print(sender_id)
+
+        try:
+            # Fetch all campaigns
+            campaigns = session.query(UserCampaign).filter(
+                UserCampaign.id.in_(campaign_ids),
+                UserCampaign.status == "pending"
+            ).all()
+
+            if not campaigns:
+                return Response({"error": "No valid campaigns found!"}, status=status.HTTP_404_NOT_FOUND)
+
+            if send_via_email:
+                practice_user_emails = User.objects.filter(id__in=practice_user_ids).values_list("email", flat=True)                
+
+                for campaign in campaigns:
+                    already_sent = session.query(SendCampaign).filter_by(user_campaign_id=campaign.id).first()
+
+                    if already_sent:
+                        return Response({"message" : "Campaign already sent to users"}, status=status.HTTP_400_BAD_REQUEST)
 
                     send_mail(
-                        subject=subject,
-                        message=message,
+                        subject=campaign.text,
+                        message=campaign.description,
                         from_email="vaibhav.shahi@practicenumbers.com",
                         recipient_list=practice_user_emails
                     )
 
-                    sent_mail_entry = SendCampaign(user_campaign_id=campaign_id)
-                    session.add(sent_mail_entry)
-                    session.commit()
+                    # Save the campaign with `sent_by`
+                    session.add(SendCampaign(user_campaign_id=campaign.id, sent_by=sender_id, sent_at = sent_at))
 
-                    return Response({"success": "Email sent successfully!"}, status=status.HTTP_201_CREATED)
+                session.commit()
+                return Response({"success": "Emails sent successfully!"}, status=status.HTTP_201_CREATED)
 
-                else:
-                    # Message sending logic
-                    practice_users = session.query(PracticeUser).filter(PracticeUser.roles == 'practice user').all()
-                    practice_user_ids = [user.user_id for user in practice_users]
+            else:
+                # Check if any messages have already been sent
+                if session.query(UserMessages).filter(
+                    UserMessages.user_campaign_id.in_(campaign_ids),
+                    UserMessages.user_id.in_(practice_user_ids)
+                ).first():
+                    return Response({"error": "One or more messages have already been sent for the selected campaigns!"}, status=status.HTTP_400_BAD_REQUEST)
 
-                    print(len(practice_user_ids), "user ids")
-
+                # Send messages
+                for campaign in campaigns:
                     for user_id in practice_user_ids:
-                        # Avoid duplicate messages
-                        existing_message = session.query(UserMessages).filter_by(
-                            user_id=user_id,
-                            user_campaign_id=campaign.id
-                        ).first()
+                        session.add(UserMessages(user_id=user_id, user_campaign_id=campaign.id, sent_by = sender_id, sent_at = sent_at))    
 
-                        if not existing_message:
-                            new_message = UserMessages(user_id=user_id, user_campaign_id=campaign.id)
-                            session.add(new_message)
-                            session.commit()
+                session.commit()
+                return Response({"message": "Messages sent successfully!"}, status=status.HTTP_201_CREATED)
 
-                    return Response({"message": "Message sent successfully!"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            session.rollback()
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-            except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-            finally:
-                session.close()
-        else:
-            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        finally:
+            session.close()
 
 class AllSentCampaigns(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
+    class CustomPagination(PageNumberPagination):
+        page_size = 12
+        page_size_query_param = 'page_size'
+        max_page_size = 100
+
     def list(self, request, *args, **kwargs):
-        # Create a session to query the database
         session = Sessionhelper.create_session()
 
         try:
-            
-            sent_campaigns_email = session.query(SendCampaign).all()
-            sent_campaigns_messages = session.query(UserMessages).all()
+            sent_campaigns_email = session.query(SendCampaign).order_by(SendCampaign.sent_at.desc()).all()
+            sent_campaigns_messages = session.query(UserMessages).order_by(UserMessages.sent_at.desc()).all()
 
-            # Collect the text and description for each sent campaign via email
+            # Use separate sets to track unique IDs for email and messages
+            unique_email_campaign_ids = set()
+            unique_message_campaign_ids = set()
             response_data = []
+            # Process email campaigns
             for sent_campaign in sent_campaigns_email:
+                # print(sent_campaign)
+                # print(vars(sent_campaign))
                 campaign = session.query(UserCampaign).filter(UserCampaign.id == sent_campaign.user_campaign_id).first()
-                if campaign:
+                sender = session.query(auth_user).filter_by(id=sent_campaign.sent_by).first()
+
+
+                sender_info = sender.username
+                sent_at = sent_campaign.sent_at
+                seen = sent_campaign.seen
+
+                sent_date = sent_at.strftime('%Y-%m-%d') if sent_at else None
+                sent_time = sent_at.strftime('%H:%M:%S') if sent_at else None
+
+                if campaign and campaign.id not in unique_email_campaign_ids:
                     response_data.append({
                         "status": campaign.status,
                         "campaign_id": campaign.id,
                         "text": campaign.text,
                         "description": campaign.description,
-                        "sent_via": "email"
+                        "sent_via": "email",
+                        "sender" : sender_info,
+                        "sent_date": sent_date,
+                        "sent_time": sent_time,
+                        "seen" : seen
                     })
+                    unique_email_campaign_ids.add(campaign.id)
 
-            # Collect the text and description for each sent campaign via messages
+            # Process message campaigns
             for sent_message in sent_campaigns_messages:
                 campaign = session.query(UserCampaign).filter(UserCampaign.id == sent_message.user_campaign_id).first()
-                if campaign:
+
+                sender = session.query(auth_user).filter_by(id=sent_message.sent_by).first()
+
+                sender_info = sender.username
+                sent_at = sent_message.sent_at
+                seen = sent_message.seen
+
+                sent_date = sent_at.strftime('%Y-%m-%d') if sent_at else None
+                sent_time = sent_at.strftime('%H:%M:%S') if sent_at else None
+
+                if campaign and campaign.id not in unique_message_campaign_ids:
                     response_data.append({
                         "status": campaign.status,
                         "campaign_id": campaign.id,
                         "text": campaign.text,
                         "description": campaign.description,
-                        "sent_via": "message"
+                        "sent_via": "message",
+                        "sender" : sender_info,
+                        "sent_date": sent_date,
+                        "sent_time": sent_time,
+                        "seen" : seen
                     })
+                    unique_message_campaign_ids.add(campaign.id)
 
-            # Return the list of campaigns with text and description
-            return Response(response_data, status=status.HTTP_200_OK)
-        
+            response_data.sort(key=lambda x: x["sent_date"] + x["sent_time"], reverse=True)
+
+
+            paginator = self.CustomPagination()
+            result_page = paginator.paginate_queryset(response_data, request, view=self)
+
+            if result_page is not None:
+                # Calculate the "previous" page URL
+                if paginator.page.number == 1:
+                    # No "previous" for the first page
+                    paginator.previous_page = None
+                else:
+                    # Compute the correct previous page URL
+                    paginator.previous_page = f'{request.scheme}://{request.get_host()}{request.path}?page={paginator.page.number - 1}'
+
+                return paginator.get_paginated_response(result_page)
+            else:
+                # Return the list of campaigns if no pagination
+                return Response(response_data, status=status.HTTP_200_OK)
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         finally:
             session.close()
+
 
 class AcceptOrRejectCampaignViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsPracticeUser]
@@ -467,22 +609,21 @@ class AcceptOrRejectCampaignViewSet(viewsets.ViewSet):
             # Close the session after the operation
             session.close()
 
-
 class ScheduleCampaignsViewSet(viewsets.ViewSet):
-    
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSuperAdminOrAdmin]
 
     def create(self, request, *args, **kwargs):
 
         campaign_id = kwargs.get('campaign_id')
+        sender_id = request.user.id  # The ID of the logged-in user (sender)
+        sent_at = datetime.now()
         serializer = UserCampaignScheduleSerializer(data=request.data)
 
         if not campaign_id:
-            return Response({"error message" : "Campaign id not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error message": "Campaign id not found"}, status=status.HTTP_404_NOT_FOUND)
 
         if serializer.is_valid():
             scheduled_datetime = serializer.validated_data.get('scheduled_datetime')
-            
         
             try:
                 session = Sessionhelper.create_session()
@@ -507,7 +648,7 @@ class ScheduleCampaignsViewSet(viewsets.ViewSet):
 
                     # Schedule the task with specific IST time
                     send_campaign_at_scheduled_time.apply_async(
-                        args=[campaign_id],
+                        args=[campaign_id, sender_id, sent_at],  # Pass sender_id to the task
                         eta=scheduled_datetime
                     )
 
@@ -519,5 +660,129 @@ class ScheduleCampaignsViewSet(viewsets.ViewSet):
                 return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
             finally:
                 session.close()
-        else :
-            return Response({"error" : "Serializer not valid!"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"error": "Serializer not valid!"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AllPracticeUsersViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsSuperAdminOrAdmin]
+
+    def list(self, request, *args, **kwargs):
+        session = Sessionhelper.create_session()
+
+        try:
+            # Fetch only practice users' IDs
+            practice_user_ids = session.query(PracticeUser.user_id).filter(
+                PracticeUser.roles == 'practice user'
+            ).all()
+
+            # Extract just the IDs from the query results
+            practice_user_ids_list = [user_id[0] for user_id in practice_user_ids]
+
+            if not practice_user_ids_list:
+                return Response({"error message": "No practice user found"}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({"practice_users_ids": practice_user_ids_list}, status=status.HTTP_202_ACCEPTED)
+
+        except Exception as e:
+            return Response({"error message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        finally:
+            session.close()
+
+class SendAllCampaignsViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsSuperAdminOrAdmin]
+
+    def create(self, request, *args, **kwargs):
+        session = Sessionhelper.create_session()
+
+        campaigns = session.query(UserCampaign).filter(UserCampaign.status == 'pending').all()
+        practice_user_ids = request.data.get("practice_user_ids", [])
+
+        if not campaigns:
+            return Response({"error message" : "No campaigns were found!"}, status=status.HTTP_404_NOT_FOUND)
+        
+        if not practice_user_ids or not isinstance(practice_user_ids, list):
+            return Response({"error": "Invalid or missing campaign IDs!"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = EmailSerializer(data = request.data)
+
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        
+        send_via_email = serializer.validated_data['on_email']
+
+        try:
+            if send_via_email:
+                practice_user_emails = User.objects.filter(id__in=practice_user_ids).values_list("email", flat=True)
+
+                for campaign in campaigns:
+                    send_mail(
+                        subject=campaign.text,
+                        message=campaign.description,
+                        from_email="vaibhav.shahi@practicenumbers.com",
+                        recipient_list=practice_user_emails
+                    )
+
+                    session.add(SendCampaign(user_campaign_id=campaign.id))
+                session.commit()
+
+                return Response({"success": "Emails sent successfully!"}, status=status.HTTP_201_CREATED)
+            else:
+                for campaign in campaigns:
+                    for user_id in practice_user_ids:
+                        existing_message = session.query(UserMessages).filter_by(
+                            user_id=user_id,
+                            user_campaign_id=campaign.id
+                        ).first()
+
+                        if not existing_message:
+                            session.add(UserMessages(user_id=user_id, user_campaign_id=campaign.id))
+
+                session.commit()
+                return Response({"message": "Messages sent successfully!"}, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            session.rollback()
+            print("i am here")
+            return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
+        finally:
+            session.close()
+
+class MarkAsSeenViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def update(self, request, *args, **kwargs):
+        session = Sessionhelper.create_session()
+        campaign_id = request.data.get("campaign_id")
+        print(campaign_id)
+
+        if not campaign_id:
+            return Response({"error": "campaign_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Update seen status for emails
+            sent_campaign = session.query(SendCampaign).filter(
+                SendCampaign.user_campaign_id == campaign_id
+            ).first()
+
+            if sent_campaign:
+                sent_campaign.seen = True
+
+            # Update seen status for messages
+            sent_message = session.query(UserMessages).filter(
+                UserMessages.user_campaign_id == campaign_id
+            ).first()
+
+            if sent_message:
+                sent_message.seen = True
+
+            session.commit()
+            return Response({"success": "Message marked as seen"}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            session.rollback()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        finally:
+            session.close()
