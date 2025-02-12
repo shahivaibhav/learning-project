@@ -12,9 +12,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-
 @shared_task
-def send_campaign_at_scheduled_time(campaign_id, sent_at):
+def send_campaign_at_scheduled_time(campaign_id, sender_id, sent_at):  # Add sender_id
     session = Sessionhelper.create_session()
     try:
         campaign = session.query(UserCampaign).filter(UserCampaign.id == campaign_id).first()

@@ -619,6 +619,11 @@ class ScheduleCampaignsViewSet(viewsets.ViewSet):
         sent_at = datetime.now()
         serializer = UserCampaignScheduleSerializer(data=request.data)
 
+        print(campaign_id)
+        print(sender_id)
+        print(sent_at)
+        # print(campaign_id)
+
         if not campaign_id:
             return Response({"error message": "Campaign id not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -637,7 +642,7 @@ class ScheduleCampaignsViewSet(viewsets.ViewSet):
                     
                     scheduled_datetime = scheduled_datetime.astimezone(ist)  # Convert it to IST
 
-                    # Create the schedule entry (if needed)
+                    # Create the schedule entry (if needed) 
                     schedule_entry = UserCampaignSequence(
                         user_campaign_id=campaign_id,
                         scheduled_date=scheduled_datetime
@@ -653,9 +658,14 @@ class ScheduleCampaignsViewSet(viewsets.ViewSet):
                     )
 
                     return Response(
-                        {"success": f"Campaign scheduled for {scheduled_datetime}!"}, 
-                        status=status.HTTP_201_CREATED
+                        {
+                            "success": f"Campaign scheduled for {scheduled_datetime}!",
+                            "campaign_id": campaign_id,
+                            "scheduled_time": str(scheduled_datetime),
+                        },
+                        status=status.HTTP_201_CREATED,
                     )
+
             except Exception as e:
                 return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
             finally:
@@ -698,12 +708,16 @@ class SendAllCampaignsViewSet(viewsets.ViewSet):
 
         campaigns = session.query(UserCampaign).filter(UserCampaign.status == 'pending').all()
         practice_user_ids = request.data.get("practice_user_ids", [])
+        sender_id = request.user.id
+        sent_at = datetime.now()
+
+        print(campaigns)
 
         if not campaigns:
             return Response({"error message" : "No campaigns were found!"}, status=status.HTTP_404_NOT_FOUND)
         
         if not practice_user_ids or not isinstance(practice_user_ids, list):
-            return Response({"error": "Invalid or missing campaign IDs!"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid or missing PRactice IDs!"}, status=status.HTTP_400_BAD_REQUEST)
         
         serializer = EmailSerializer(data = request.data)
 
@@ -724,7 +738,7 @@ class SendAllCampaignsViewSet(viewsets.ViewSet):
                         recipient_list=practice_user_emails
                     )
 
-                    session.add(SendCampaign(user_campaign_id=campaign.id))
+                    session.add(SendCampaign(user_campaign_id=campaign.id, sent_by=sender_id, sent_at = sent_at))
                 session.commit()
 
                 return Response({"success": "Emails sent successfully!"}, status=status.HTTP_201_CREATED)
@@ -737,7 +751,7 @@ class SendAllCampaignsViewSet(viewsets.ViewSet):
                         ).first()
 
                         if not existing_message:
-                            session.add(UserMessages(user_id=user_id, user_campaign_id=campaign.id))
+                            session.add(UserMessages(user_id=user_id, user_campaign_id=campaign.id, sent_by = sender_id, sent_at = sent_at))
 
                 session.commit()
                 return Response({"message": "Messages sent successfully!"}, status=status.HTTP_201_CREATED)
